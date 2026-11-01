@@ -1,0 +1,2052 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>InkScript Studio — Text to Handwritten Notes Converter</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+
+  <!-- Google Fonts: UI + Realistic Handwriting Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400..700&family=Cedarville+Cursive&family=Gloria+Hallelujah&family=Homemade+Apple&family=Indie+Flower&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Kalam:wght@300;400;700&family=Patrick+Hand&family=Reenie+Beanie&family=Shadows+Into+Light&display=swap" rel="stylesheet">
+
+  <!-- html2canvas & jsPDF for High-Res PNG and PDF Export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <!-- Mozilla PDF.js for Client-Side PDF Text & Font-Size Heading Extraction -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    if (window['pdfjsLib']) {
+      window['pdfjsLib'].GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+  </script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            slate: {
+              850: '#141c2b',
+              950: '#090d16'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 7px;
+      height: 7px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.4);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(100, 116, 139, 0.5);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(148, 163, 184, 0.8);
+    }
+
+    /* Paper Surface & Realistic Shadows */
+    .paper-sheet {
+      position: relative;
+      width: 794px; /* Standard A4 width at 96 DPI */
+      min-height: 1123px; /* Standard A4 height at 96 DPI */
+      background-color: var(--paper-bg, #fcfbf7);
+      box-shadow:
+        0 20px 50px rgba(0, 0, 0, 0.45),
+        0 2px 8px rgba(0, 0, 0, 0.2),
+        inset 0 0 60px rgba(180, 165, 135, 0.08);
+      transition: background-color 0.25s ease, box-shadow 0.25s ease;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* Subtle Paper Fiber Noise Texture via CSS gradients */
+    .paper-texture {
+      background-image:
+        radial-gradient(rgba(0, 0, 0, 0.018) 1px, transparent 0),
+        radial-gradient(rgba(120, 90, 40, 0.015) 1px, transparent 0);
+      background-size: 24px 24px;
+      background-position: 0 0, 12px 12px;
+    }
+
+    /* Ruled Practical Page Horizontal Lines */
+    .ruled-lines-area {
+      background-image: repeating-linear-gradient(
+        to bottom,
+        transparent 0px,
+        transparent calc(var(--line-height, 32px) - 1.2px),
+        var(--rule-line-color, rgba(104, 142, 194, 0.42)) calc(var(--line-height, 32px) - 1.2px),
+        var(--rule-line-color, rgba(104, 142, 194, 0.42)) var(--line-height, 32px)
+      );
+      background-attachment: local;
+    }
+
+    /* Double vertical red/pink margin line on left for Practical Page */
+    .practical-margin-lines {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: var(--margin-left, 82px);
+      width: 5px;
+      border-left: 1.5px solid var(--margin-line-color, rgba(220, 75, 95, 0.62));
+      border-right: 1.5px solid var(--margin-line-color, rgba(220, 75, 95, 0.62));
+      pointer-events: none;
+      z-index: 4;
+    }
+
+    /* Double horizontal header border on top for Practical Page */
+    .practical-top-header {
+      height: var(--header-height, 96px);
+      border-bottom: 1.5px solid var(--margin-line-color, rgba(220, 75, 95, 0.65));
+      position: relative;
+    }
+    .practical-top-header::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 3px;
+      border-bottom: 1.5px solid var(--margin-line-color, rgba(220, 75, 95, 0.65));
+      pointer-events: none;
+    }
+
+    /* Ink realism blend and subtle filter */
+    .ink-text {
+      mix-blend-mode: multiply;
+      word-break: break-word;
+    }
+
+    .ink-bleed-active .ink-word {
+      filter: url(#inkBleedFilter);
+    }
+
+    /* Hand-drawn underline SVG path styling */
+    .heading-underline {
+      display: inline-block;
+      position: relative;
+    }
+
+    /* Camera Scan Vignette / Overhead Lighting Effect */
+    .scan-shadow-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 15;
+      background:
+        radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.08) 0%, transparent 55%),
+        linear-gradient(135deg, rgba(255,255,255,0.04) 0%, rgba(0,0,0,0.06) 65%, rgba(0,0,0,0.19) 100%);
+    }
+
+    /* Print Media Query for Direct PDF / Paper Printing */
+    @media print {
+      body {
+        background: white !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      #previewViewport {
+        padding: 0 !important;
+        margin: 0 !important;
+        overflow: visible !important;
+        background: transparent !important;
+      }
+      #paperScaleWrapper {
+        transform: none !important;
+        margin: 0 !important;
+      }
+      .paper-sheet {
+        box-shadow: none !important;
+        margin: 0 auto !important;
+        page-break-after: always;
+      }
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans antialiased selection:bg-blue-500 selection:text-white min-h-screen flex flex-col overflow-x-hidden">
+
+  <!-- Hidden SVG Filter for Realistic Ink Bleed & Pen Nib Texture -->
+  <svg width="0" height="0" class="absolute pointer-events-none">
+    <defs>
+      <filter id="inkBleedFilter" x="-5%" y="-5%" width="110%" height="110%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.04 0.04" numOctaves="3" result="noise" seed="4" />
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="0.85" xChannelSelector="R" yChannelSelector="G" />
+      </filter>
+    </defs>
+  </svg>
+
+  <!-- Top Navigation Header -->
+  <header class="no-print sticky top-0 z-30 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 lg:px-6 py-3">
+    <div class="max-w-[1800px] mx-auto flex flex-wrap items-center justify-between gap-3">
+      <!-- Brand Title -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-slate-900 p-0.5 shadow-lg shadow-blue-500/20">
+          <div class="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
+            <i class="fa-solid fa-pen-nib text-blue-400 text-lg transform -rotate-12"></i>
+          </div>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-base sm:text-lg font-bold tracking-tight text-white">InkScript Studio</h1>
+            <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/30">
+              Black Headings • Blue Body
+            </span>
+          </div>
+          <p class="text-xs text-slate-400 hidden sm:block">Realistic Text-to-Handwritten Notes & Practical Notebook Converter</p>
+        </div>
+      </div>
+
+      <!-- Center Quick Paper Mode Switcher -->
+      <div class="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 shadow-inner">
+        <button id="btnModePractical" onclick="setPaperType('practical')" class="flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all bg-blue-600 text-white shadow">
+          <i class="fa-solid fa-book-open"></i>
+          <span>Ruled Practical Page</span>
+        </button>
+        <button id="btnModeA4" onclick="setPaperType('a4')" class="flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all text-slate-400 hover:text-white">
+          <i class="fa-regular fa-file"></i>
+          <span>Plain A4 Sheet</span>
+        </button>
+      </div>
+
+      <!-- Right Action Buttons: Templates, Export PNG, Print/PDF -->
+      <div class="flex items-center gap-2">
+        <!-- Hidden File Input for PDF / TXT / MD Upload -->
+        <input
+          type="file"
+          id="pdfFileInput"
+          accept=".pdf,.txt,.md,application/pdf,text/plain"
+          class="hidden"
+          onchange="handleFileUpload(event)"
+        />
+
+        <!-- Quick Upload PDF Button in Top Header -->
+        <button
+          onclick="document.getElementById('pdfFileInput').click()"
+          class="flex items-center gap-2 bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-slate-950 text-xs sm:text-sm font-semibold px-3.5 py-2 rounded-xl shadow-lg shadow-amber-500/20 transition cursor-pointer"
+          title="Upload a PDF or Text file to convert into Handwritten Notes"
+        >
+          <i class="fa-solid fa-file-arrow-up"></i>
+          <span>Upload PDF</span>
+        </button>
+
+        <!-- Sample Preset Selector -->
+        <div class="relative">
+          <select id="sampleSelector" onchange="loadSampleTemplate(this.value)" aria-label="Load Sample Notes" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm rounded-xl px-3 py-2 border border-slate-700 focus:outline-none focus:border-blue-500 transition cursor-pointer">
+            <option value="physics">Sample: Physics Practical Copy</option>
+            <option value="cs">Sample: Data Structures Notes</option>
+            <option value="biology">Sample: Cell Biology Notes</option>
+            <option value="chemistry">Sample: Organic Chemistry Lab</option>
+          </select>
+        </div>
+
+        <button onclick="exportAsPNG()" id="btnExportPNG" class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-xs sm:text-sm font-medium px-3.5 py-2 rounded-xl shadow-lg shadow-emerald-600/20 transition cursor-pointer">
+          <i class="fa-solid fa-image"></i>
+          <span>Download PNG</span>
+        </button>
+
+        <button onclick="exportAsPDF()" id="btnExportPDF" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-xs sm:text-sm font-medium px-3.5 py-2 rounded-xl shadow-lg shadow-indigo-600/20 transition cursor-pointer">
+          <i class="fa-solid fa-file-pdf"></i>
+          <span class="hidden sm:inline">Save PDF</span>
+        </button>
+
+        <button onclick="window.print()" title="Print Page" class="flex items-center justify-center w-9 h-9 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl border border-slate-700 transition cursor-pointer">
+          <i class="fa-solid fa-print"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Workspace Container -->
+  <main class="flex-1 max-w-[1800px] w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-0 lg:gap-6 p-3 sm:p-5">
+
+    <!-- LEFT COLUMN: Editor & Customization Controls (5 cols on large screens) -->
+    <section class="no-print lg:col-span-5 xl:col-span-5 flex flex-col gap-4">
+
+      <!-- Control Tabs Navigation -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-1.5 flex items-center gap-1">
+        <button onclick="switchControlTab('editor')" id="tabBtn-editor" class="flex-1 py-2 px-3 rounded-xl text-xs sm:text-sm font-medium transition flex items-center justify-center gap-2 bg-slate-800 text-white shadow">
+          <i class="fa-solid fa-keyboard text-blue-400"></i>
+          <span>Text & Headings</span>
+        </button>
+        <button onclick="switchControlTab('style')" id="tabBtn-style" class="flex-1 py-2 px-3 rounded-xl text-xs sm:text-sm font-medium transition flex items-center justify-center gap-2 text-slate-400 hover:text-white">
+          <i class="fa-solid fa-signature text-indigo-400"></i>
+          <span>Font & Ink Color</span>
+        </button>
+        <button onclick="switchControlTab('paper')" id="tabBtn-paper" class="flex-1 py-2 px-3 rounded-xl text-xs sm:text-sm font-medium transition flex items-center justify-center gap-2 text-slate-400 hover:text-white">
+          <i class="fa-solid fa-sliders text-emerald-400"></i>
+          <span>Paper & Realism</span>
+        </button>
+      </div>
+
+      <!-- TAB 1: TEXT EDITOR & HEADING RULES -->
+      <div id="tabPanel-editor" class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col gap-3.5 shadow-xl">
+
+        <!-- PDF & Document Drag-and-Drop Upload Zone -->
+        <div
+          id="pdfDropZone"
+          onclick="document.getElementById('pdfFileInput').click()"
+          ondragover="handlePdfDragOver(event)"
+          ondragleave="handlePdfDragLeave(event)"
+          ondrop="handlePdfDrop(event)"
+          class="group relative rounded-xl border-2 border-dashed border-slate-700 hover:border-amber-400/80 bg-slate-950/70 hover:bg-slate-950 p-3.5 transition-all cursor-pointer flex flex-col gap-2"
+        >
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 group-hover:scale-105 transition-transform shrink-0">
+                <i class="fa-solid fa-file-pdf text-lg"></i>
+              </div>
+              <div>
+                <div class="text-xs sm:text-sm font-semibold text-white flex items-center gap-2">
+                  <span>Import PDF to Handwriting</span>
+                  <span class="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">Smart Heading AI</span>
+                </div>
+                <p class="text-[11px] text-slate-400">
+                  Drag & drop any <code class="text-slate-300">.pdf</code>, <code class="text-slate-300">.txt</code>, or <code class="text-slate-300">.md</code> file — headings auto-convert to <strong class="text-white">Black Ink</strong> & body to <strong class="text-blue-400">Blue Ink</strong>
+                </p>
+              </div>
+            </div>
+            <span class="hidden sm:inline-flex items-center gap-1.5 text-xs font-medium text-amber-300 bg-amber-500/10 border border-amber-500/30 px-3 py-1.5 rounded-lg shrink-0 group-hover:bg-amber-500 group-hover:text-slate-950 transition">
+              <i class="fa-solid fa-upload text-[11px]"></i>
+              <span>Browse PDF</span>
+            </span>
+          </div>
+
+          <!-- Progress Bar during PDF Parsing -->
+          <div id="pdfProgressContainer" class="hidden pt-1" onclick="event.stopPropagation()">
+            <div class="flex items-center justify-between text-[11px] text-amber-300 mb-1">
+              <span id="pdfProgressStatus"><i class="fa-solid fa-spinner fa-spin mr-1.5"></i>Extracting PDF pages...</span>
+              <span id="pdfProgressPercent" class="font-mono">0%</span>
+            </div>
+            <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+              <div id="pdfProgressBar" class="h-full bg-gradient-to-r from-amber-500 to-blue-500 transition-all duration-200" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Loaded PDF Interactive Controls (Page Range, Heading Sensitivity, Re-Import) -->
+        <div id="pdfControlsPanel" class="hidden bg-slate-950/90 border border-amber-500/30 rounded-xl p-3 space-y-2.5">
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+            <div class="flex items-center gap-2 min-w-0">
+              <i class="fa-solid fa-file-circle-check text-emerald-400"></i>
+              <span id="loadedPdfName" class="text-xs font-semibold text-white truncate max-w-[200px]">document.pdf</span>
+              <span id="loadedPdfPagesBadge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-amber-300 border border-slate-700">1 Page</span>
+            </div>
+            <button onclick="document.getElementById('pdfFileInput').click()" class="text-[11px] text-amber-400 hover:text-amber-300 font-medium">
+              <i class="fa-solid fa-rotate mr-1"></i>Change PDF
+            </button>
+          </div>
+
+          <!-- Page Range & Smart Font-Size Detection -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-center">
+            <div class="flex items-center gap-1.5 text-xs">
+              <span class="text-slate-400">Pages:</span>
+              <input id="pdfPageFrom" type="number" min="1" value="1" class="w-14 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-center text-xs text-white font-mono focus:outline-none focus:border-amber-500" />
+              <span class="text-slate-500">to</span>
+              <input id="pdfPageTo" type="number" min="1" value="1" class="w-14 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-center text-xs text-white font-mono focus:outline-none focus:border-amber-500" />
+              <button onclick="selectAllPdfPages()" class="text-[11px] px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">
+                All
+              </button>
+            </div>
+
+            <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
+              <input type="checkbox" id="chkPdfFontSizeHeadings" checked class="rounded bg-slate-800 border-slate-700 text-amber-500 focus:ring-0" />
+              <span>Detect Headings by PDF Font Size</span>
+            </label>
+          </div>
+
+          <!-- Re-extract Actions: Replace vs Append -->
+          <div class="flex items-center gap-2 pt-0.5">
+            <button onclick="reExtractLoadedPdf('replace')" class="flex-1 py-1.5 px-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer">
+              <i class="fa-solid fa-wand-magic-sparkles"></i>
+              <span>Extract & Replace Notes</span>
+            </button>
+            <button onclick="reExtractLoadedPdf('append')" class="py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium text-xs transition flex items-center justify-center gap-1.5 cursor-pointer">
+              <i class="fa-solid fa-plus"></i>
+              <span>Append to End</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Quick Formatting Toolbar -->
+        <div class="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800">
+          <div class="flex flex-wrap items-center gap-1.5">
+            <button onclick="formatSelection('heading')" title="Format Line as Main Black Heading (# )" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 flex items-center gap-1.5 transition">
+              <span class="w-2.5 h-2.5 rounded-full bg-black border border-slate-400 inline-block"></span>
+              <span># Heading</span>
+            </button>
+            <button onclick="formatSelection('inlineHeading')" title="Wrap Selected Text as Black Inline Label (**Label:**)" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 flex items-center gap-1.5 transition">
+              <i class="fa-solid fa-highlighter text-slate-400 text-[10px]"></i>
+              <span>**Black Label:**</span>
+            </button>
+            <button onclick="formatSelection('marginTag')" title="Add Left Margin Number/Tag (e.g. Q.1 | or Ans |)" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 flex items-center gap-1.5 transition">
+              <i class="fa-solid fa-indent text-rose-400 text-[11px]"></i>
+              <span>Margin Tag</span>
+            </button>
+            <button onclick="formatSelection('bullet')" title="Insert Bullet Point" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 flex items-center gap-1.5 transition">
+              <i class="fa-solid fa-list-ul text-blue-400 text-[11px]"></i>
+              <span>Bullet</span>
+            </button>
+            <button onclick="formatSelection('body')" title="Convert Line to Normal Blue Body Text" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 flex items-center gap-1.5 transition">
+              <span class="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block"></span>
+              <span>Blue Body</span>
+            </button>
+          </div>
+
+          <button onclick="clearEditorText()" title="Clear Text" class="text-xs text-slate-400 hover:text-rose-400 px-2 py-1 rounded transition">
+            <i class="fa-regular fa-trash-can mr-1"></i>Clear
+          </button>
+        </div>
+
+        <!-- Syntax Guide Banner -->
+        <div class="bg-slate-950/80 border border-slate-800/90 rounded-xl p-2.5 text-[11px] text-slate-300 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+          <div class="flex items-center gap-2">
+            <span class="px-1.5 py-0.5 rounded bg-slate-800 font-mono text-white border border-slate-700"># Title</span>
+            <span>Full line in <strong>Black Ink</strong></span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="px-1.5 py-0.5 rounded bg-slate-800 font-mono text-white border border-slate-700">Aim: ...</span>
+            <span>Auto-black before colon <code class="text-blue-400">:</code></span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="px-1.5 py-0.5 rounded bg-slate-800 font-mono text-white border border-slate-700">**Bold**</span>
+            <span>Inline <strong>Black Ink</strong> anywhere</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="px-1.5 py-0.5 rounded bg-slate-800 font-mono text-rose-300 border border-slate-700">Q.1 | Text</span>
+            <span>Left red-margin label</span>
+          </div>
+        </div>
+
+        <!-- Main Textarea Input -->
+        <div class="relative flex-1 flex flex-col">
+          <textarea
+            id="noteInput"
+            rows="16"
+            placeholder="Type or paste your notes here...&#10;# Main Heading (renders in Black Ink)&#10;Aim: To study the characteristics...&#10;Normal body text renders in realistic Blue Ink."
+            class="w-full bg-slate-950 text-slate-100 font-mono text-xs sm:text-sm leading-relaxed p-3.5 rounded-xl border border-slate-800 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 resize-y min-h-[300px]"
+            oninput="renderHandwrittenNotes()"
+          ></textarea>
+          <div class="flex items-center justify-between text-[11px] text-slate-400 mt-2 px-1">
+            <span id="editorStats">0 words • 0 lines</span>
+            <span class="text-blue-400"><i class="fa-solid fa-bolt mr-1"></i>Live Ink Sync Active</span>
+          </div>
+        </div>
+
+        <!-- Auto-Detection Checkboxes -->
+        <div class="bg-slate-950/60 rounded-xl p-3 border border-slate-800/80 space-y-2">
+          <div class="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Smart Heading Detection Rules</div>
+          <label class="flex items-center gap-2.5 text-xs text-slate-300 cursor-pointer select-none">
+            <input type="checkbox" id="chkColonHeading" checked onchange="renderHandwrittenNotes()" class="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0" />
+            <span>Lines ending with <code class="text-white font-mono">:</code> become full <strong>Black Ink Headings</strong></span>
+          </label>
+          <label class="flex items-center gap-2.5 text-xs text-slate-300 cursor-pointer select-none">
+            <input type="checkbox" id="chkInlineColon" checked onchange="renderHandwrittenNotes()" class="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0" />
+            <span>Inline labels before <code class="text-white font-mono">:</code> (e.g., <em>Observation:</em>) in <strong>Black Ink</strong></span>
+          </label>
+          <label class="flex items-center gap-2.5 text-xs text-slate-300 cursor-pointer select-none">
+            <input type="checkbox" id="chkAllCapsHeading" checked onchange="renderHandwrittenNotes()" class="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0" />
+            <span>Short ALL-CAPS lines automatically styled as <strong>Black Ink Headings</strong></span>
+          </label>
+        </div>
+
+        <!-- Practical Notebook Header Fields (Quick Editor) -->
+        <div id="practicalHeaderFieldsCard" class="bg-slate-950/60 rounded-xl p-3 border border-slate-800/80 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold text-rose-300 uppercase tracking-wider">
+              <i class="fa-solid fa-book mr-1"></i>Practical Page Top Header
+            </span>
+            <span class="text-[11px] text-slate-400">Also editable on page</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div>
+              <label class="block text-[11px] text-slate-400 mb-1">Exp No. / Title</label>
+              <input id="inputExpTitle" type="text" value="Exp. No: 04" oninput="syncHeaderInputs('fromSidebar')" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-400 mb-1">Date</label>
+              <input id="inputDocDate" type="text" value="14 / 10 / 2026" oninput="syncHeaderInputs('fromSidebar')" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-400 mb-1">Page No.</label>
+              <input id="inputPageNo" type="text" value="12" oninput="syncHeaderInputs('fromSidebar')" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: HANDWRITING FONTS & INK SHADES -->
+      <div id="tabPanel-style" class="hidden bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col gap-4 shadow-xl">
+
+        <!-- Handwriting Font Selector Grid -->
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2.5">
+            1. Select Realistic Handwriting Style
+          </label>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-2" id="fontSelectorGrid">
+            <button onclick="selectHandwritingFont('Kalam', 20, 3)" data-font="Kalam" class="font-card p-2.5 rounded-xl border border-blue-500 bg-blue-500/10 text-left transition cursor-pointer">
+              <div class="text-[11px] text-blue-300 font-medium mb-0.5">Kalam (Default)</div>
+              <div style="font-family: 'Kalam', cursive;" class="text-base text-white truncate">Practical Notes</div>
+            </button>
+            <button onclick="selectHandwritingFont('Caveat', 24, 2)" data-font="Caveat" class="font-card p-2.5 rounded-xl border border-slate-800 bg-slate-950 hover:border-slate-700 text-left transition cursor-pointer">
+              <div class="text-[11px] text-slate-400 font-medium mb-0.5">Caveat</div>
+              <div style="font-family: 'Caveat', cursive;" class="text-lg text-white truncate">Natural Cursive</div>
+            </button>
+            <button onclick="selectHandwritingFont('Patrick Hand', 21, 3)" data-font="Patrick Hand" class="font-card p-2.5 rounded-xl border border-slate-800 bg-slate-950 hover:border-slate-700 text-left transition cursor-pointer">
+              <div class="text-[11px] text-slate-400 font-medium mb-0.5">Patrick Hand</div>
+              <div style="font-family: 'Patrick Hand', cursive;" class="text-base text-white truncate">Neat Student</div>
+            </button>
+            <button onclick="selectHandwritingFont('Indie Flower', 20, 3)" data-font="Indie Flower" class="font-card p-2.5 rounded-xl border border-slate-800 bg-slate-950 hover:border-slate-700 text-left transition cursor-pointer">
+              <div class="text-[11px] text-slate-400 font-medium mb-0.5">Indie Flower</div>
+              <div style="font-family: 'Indie Flower', cursive;" class="text-base text-white truncate">Casual Rounded</div>
+            </button>
+            <button onclick="selectHandwritingFont('Shadows Into Light', 21, 3)" data-font="Shadows Into Light" class="font-card p-2.5 rounded-xl border border-slate-800 bg-slate-950 hover:border-slate-700 text-left transition cursor-pointer">
+              <div class="text-[11px] text-slate-400 font-medium mb-0.5">Shadows Into Light</div>
+              <div style="font-family: 'Shadows Into Light', cursive;" class="text-base text-white truncate">Quick Lecture</div>
+            </button>
+            <button onclick="selectHandwritingFont('Cedarville Cursive', 20, 4)" data-font="Cedarville Cursive" class="font-card p-2.5 rounded-xl border border-slate-800 bg-slate-950 hover:border-slate-700 text-left transition cursor-pointer">
+              <div class="text-[11px] text-slate-400 font-medium mb-0.5">Cedarville Cursive</div>
+              <div style="font-family: 'Cedarville Cursive', cursive;" class="text-base text-white truncate">Real Script</div>
+            </button>
+            <button onclick="selectHandwritingFont('Reenie Beanie', 26, 2)" data-font="Reenie Beanie" class="font-card p-2.5 rounded-xl border border-slate-800 bg-slate-950 hover:border-slate-700 text-left transition cursor-pointer">
+              <div class="text-[11px] text-slate-400 font-medium mb-0.5">Reenie Beanie</div>
+              <div style="font-family: 'Reenie Beanie', cursive;" class="text-xl text-white truncate">Fast Scribble</div>
+            </button>
+            <button onclick="selectHandwritingFont('Gloria Hallelujah', 17, 5)" data-font="Gloria Hallelujah" class="font-card p-2.5 rounded-xl border border-slate-800 bg-slate-950 hover:border-slate-700 text-left transition cursor-pointer">
+              <div class="text-[11px] text-slate-400 font-medium mb-0.5">Gloria Hallelujah</div>
+              <div style="font-family: 'Gloria Hallelujah', cursive;" class="text-sm text-white truncate">Bold Marker</div>
+            </button>
+            <button onclick="selectHandwritingFont('Homemade Apple', 16, 6)" data-font="Homemade Apple" class="font-card p-2.5 rounded-xl border border-slate-800 bg-slate-950 hover:border-slate-700 text-left transition cursor-pointer">
+              <div class="text-[11px] text-slate-400 font-medium mb-0.5">Homemade Apple</div>
+              <div style="font-family: 'Homemade Apple', cursive;" class="text-xs text-white truncate">Classic Fountain</div>
+            </button>
+          </div>
+
+          <!-- Upload Your Own Custom Handwriting Font (.ttf / .otf / .woff) -->
+          <div class="mt-2.5 flex items-center justify-between gap-2 bg-slate-950/70 border border-slate-800 rounded-xl px-3 py-2">
+            <div class="flex items-center gap-2 text-xs text-slate-300">
+              <i class="fa-solid fa-font text-indigo-400"></i>
+              <span>Have your own handwriting <code class="text-slate-400">.ttf / .otf</code> font?</span>
+            </div>
+            <input type="file" id="customFontFileInput" accept=".ttf,.otf,.woff,.woff2" class="hidden" onchange="handleCustomFontUpload(event)" />
+            <button onclick="document.getElementById('customFontFileInput').click()" class="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-medium transition cursor-pointer shrink-0">
+              <i class="fa-solid fa-upload mr-1"></i>Load Font File
+            </button>
+          </div>
+        </div>
+
+        <!-- Heading Black Ink Shade Picker -->
+        <div class="bg-slate-950/70 rounded-xl p-3.5 border border-slate-800 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <label class="text-xs font-semibold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+              <span class="w-3 h-3 rounded-full bg-neutral-900 border border-slate-400 inline-block"></span>
+              <span>Heading Ink (Black Shades)</span>
+            </label>
+            <input type="color" id="customBlackPicker" value="#16181d" oninput="setHeadingInkColor(this.value)" class="w-7 h-6 rounded cursor-pointer bg-transparent border-0" title="Custom Heading Ink Color" />
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <button onclick="setHeadingInkColor('#16181d')" class="ink-btn-black flex items-center gap-2 p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs">
+              <span class="w-4 h-4 rounded-full bg-[#16181d] border border-slate-600 shrink-0"></span>
+              <span class="truncate">Jet Gel Black</span>
+            </button>
+            <button onclick="setHeadingInkColor('#2b2d34')" class="ink-btn-black flex items-center gap-2 p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs">
+              <span class="w-4 h-4 rounded-full bg-[#2b2d34] border border-slate-600 shrink-0"></span>
+              <span class="truncate">Ballpoint Black</span>
+            </button>
+            <button onclick="setHeadingInkColor('#1f2421')" class="ink-btn-black flex items-center gap-2 p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs">
+              <span class="w-4 h-4 rounded-full bg-[#1f2421] border border-slate-600 shrink-0"></span>
+              <span class="truncate">Charcoal Ink</span>
+            </button>
+            <button onclick="setHeadingInkColor('#0b0d13')" class="ink-btn-black flex items-center gap-2 p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs">
+              <span class="w-4 h-4 rounded-full bg-[#0b0d13] border border-slate-600 shrink-0"></span>
+              <span class="truncate">Deep Pilot V7</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Body Blue Ink Shade Picker -->
+        <div class="bg-slate-950/70 rounded-xl p-3.5 border border-slate-800 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <label class="text-xs font-semibold uppercase tracking-wider text-blue-300 flex items-center gap-2">
+              <span class="w-3 h-3 rounded-full bg-blue-600 border border-blue-300 inline-block"></span>
+              <span>Body Text Ink (Blue Shades)</span>
+            </label>
+            <input type="color" id="customBluePicker" value="#1a3b8b" oninput="setBodyInkColor(this.value)" class="w-7 h-6 rounded cursor-pointer bg-transparent border-0" title="Custom Body Ink Color" />
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <button onclick="setBodyInkColor('#1a3b8b')" class="ink-btn-blue flex items-center gap-2 p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-blue-500/50 text-xs">
+              <span class="w-4 h-4 rounded-full bg-[#1a3b8b] border border-blue-300/40 shrink-0"></span>
+              <span class="truncate">Ballpoint Blue</span>
+            </button>
+            <button onclick="setBodyInkColor('#0f4c81')" class="ink-btn-blue flex items-center gap-2 p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs">
+              <span class="w-4 h-4 rounded-full bg-[#0f4c81] border border-blue-300/40 shrink-0"></span>
+              <span class="truncate">Royal Gel Pen</span>
+            </button>
+            <button onclick="setBodyInkColor('#1e40af')" class="ink-btn-blue flex items-center gap-2 p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs">
+              <span class="w-4 h-4 rounded-full bg-[#1e40af] border border-blue-300/40 shrink-0"></span>
+              <span class="truncate">Bright Reynolds</span>
+            </button>
+            <button onclick="setBodyInkColor('#172554')" class="ink-btn-blue flex items-center gap-2 p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs">
+              <span class="w-4 h-4 rounded-full bg-[#172554] border border-blue-300/40 shrink-0"></span>
+              <span class="truncate">Navy Fountain</span>
+            </button>
+            <button onclick="setBodyInkColor('#2b509c')" class="ink-btn-blue flex items-center gap-2 p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs">
+              <span class="w-4 h-4 rounded-full bg-[#2b509c] border border-blue-300/40 shrink-0"></span>
+              <span class="truncate">Faded Bic Blue</span>
+            </button>
+            <button onclick="setBodyInkColor('#034694')" class="ink-btn-blue flex items-center gap-2 p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs">
+              <span class="w-4 h-4 rounded-full bg-[#034694] border border-blue-300/40 shrink-0"></span>
+              <span class="truncate">Parker Quink</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Typography & Spacing Sliders -->
+        <div class="bg-slate-950/70 rounded-xl p-3.5 border border-slate-800 space-y-3">
+          <div class="text-xs font-semibold uppercase tracking-wider text-slate-300">
+            Typography & Line Alignment
+          </div>
+
+          <!-- Font Size -->
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-400">Handwriting Size</span>
+              <span id="valFontSize" class="text-blue-400 font-mono">20px</span>
+            </div>
+            <input id="sliderFontSize" type="range" min="14" max="30" step="1" value="20" oninput="updateTypographySettings()" class="w-full accent-blue-500 cursor-pointer" />
+          </div>
+
+          <!-- Line Height / Rule Spacing -->
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-400">Ruled Line Spacing (Line Height)</span>
+              <span id="valLineHeight" class="text-blue-400 font-mono">32px</span>
+            </div>
+            <input id="sliderLineHeight" type="range" min="24" max="44" step="2" value="32" oninput="updateTypographySettings()" class="w-full accent-blue-500 cursor-pointer" />
+          </div>
+
+          <!-- Baseline Fine-Tune (sits words cleanly on the ruled line) -->
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-400">Baseline Vertical Offset (Sit on Rule Line)</span>
+              <span id="valBaselineOffset" class="text-blue-400 font-mono">+3px</span>
+            </div>
+            <input id="sliderBaselineOffset" type="range" min="-8" max="12" step="1" value="3" oninput="updateTypographySettings()" class="w-full accent-blue-500 cursor-pointer" />
+          </div>
+
+          <!-- Letter & Word Spacing -->
+          <div class="grid grid-cols-2 gap-3 pt-1">
+            <div>
+              <div class="flex justify-between text-xs mb-1">
+                <span class="text-slate-400">Letter Spacing</span>
+                <span id="valLetterSpacing" class="text-blue-400 font-mono">0.5px</span>
+              </div>
+              <input id="sliderLetterSpacing" type="range" min="-1.5" max="4" step="0.5" value="0.5" oninput="updateTypographySettings()" class="w-full accent-blue-500 cursor-pointer" />
+            </div>
+            <div>
+              <div class="flex justify-between text-xs mb-1">
+                <span class="text-slate-400">Word Spacing</span>
+                <span id="valWordSpacing" class="text-blue-400 font-mono">3px</span>
+              </div>
+              <input id="sliderWordSpacing" type="range" min="0" max="14" step="1" value="3" oninput="updateTypographySettings()" class="w-full accent-blue-500 cursor-pointer" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: PAPER SETTINGS & HUMAN IMPERFECTION REALISM -->
+      <div id="tabPanel-paper" class="hidden bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col gap-4 shadow-xl">
+
+        <!-- Paper Surface Tone -->
+        <div class="bg-slate-950/70 rounded-xl p-3.5 border border-slate-800 space-y-2.5">
+          <div class="text-xs font-semibold uppercase tracking-wider text-slate-300">Paper Tint & Tone</div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <button onclick="setPaperTint('#fcfbf7')" class=" flex items-center gap-2 p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs">
+              <span class="w-4 h-4 rounded-full bg-[#fcfbf7] border border-slate-500 shrink-0"></span>
+              <span>Natural White</span>
+            </button>
+            <button onclick="setPaperTint('#ffffff')" class="flex items-center gap-2 p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs">
+              <span class="w-4 h-4 rounded-full bg-[#ffffff] border border-slate-500 shrink-0"></span>
+              <span>Pure A4 Bond</span>
+            </button>
+            <button onclick="setPaperTint('#f7f3e8')" class="flex items-center gap-2 p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs">
+              <span class="w-4 h-4 rounded-full bg-[#f7f3e8] border border-slate-500 shrink-0"></span>
+              <span>Warm Cream</span>
+            </button>
+            <button onclick="setPaperTint('#efe9d8')" class="flex items-center gap-2 p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs">
+              <span class="w-4 h-4 rounded-full bg-[#efe9d8] border border-slate-500 shrink-0"></span>
+              <span>Aged Copy</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Human Handwriting Imperfection & Jitter Controls -->
+        <div class="bg-slate-950/70 rounded-xl p-3.5 border border-slate-800 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold uppercase tracking-wider text-emerald-400">
+              <i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Organic Human Imperfections
+            </span>
+            <button onclick="reseedJitter()" class="text-[11px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">
+              <i class="fa-solid fa-shuffle mr-1"></i>Randomize Hand
+            </button>
+          </div>
+
+          <!-- Word Baseline Jitter -->
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-400">Word Baseline & Tilt Jitter</span>
+              <span id="valWordJitter" class="text-emerald-400 font-mono">Medium (1.2px)</span>
+            </div>
+            <input id="sliderWordJitter" type="range" min="0" max="3" step="0.2" value="1.2" oninput="updateRealismSettings()" class="w-full accent-emerald-500 cursor-pointer" />
+          </div>
+
+          <!-- Ink Pressure & Flow Variation -->
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-400">Pen Ink Pressure Variation</span>
+              <span id="valInkPressure" class="text-emerald-400 font-mono">Natural (12%)</span>
+            </div>
+            <input id="sliderInkPressure" type="range" min="0" max="28" step="2" value="12" oninput="updateRealismSettings()" class="w-full accent-emerald-500 cursor-pointer" />
+          </div>
+
+          <!-- Heading Style & Underline -->
+          <div>
+            <label class="block text-xs text-slate-400 mb-1.5">Heading Underline Style (Black Ink)</label>
+            <select id="selectHeadingUnderline" onchange="renderHandwrittenNotes()" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500">
+              <option value="single">Hand-Drawn Single Black Underline</option>
+              <option value="double">Hand-Drawn Double Practical Underline</option>
+              <option value="none">No Underline (Black Ink Only)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Margins & Scan Realism Toggles -->
+        <div class="bg-slate-950/70 rounded-xl p-3.5 border border-slate-800 space-y-2.5">
+          <div class="text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1">Page Layout & Effects</div>
+
+          <!-- Left Margin Slider -->
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-400">Left Margin Width</span>
+              <span id="valMarginLeft" class="text-blue-400 font-mono">82px</span>
+            </div>
+            <input id="sliderMarginLeft" type="range" min="40" max="130" step="2" value="82" oninput="updateMarginSettings()" class="w-full accent-blue-500 cursor-pointer" />
+          </div>
+
+          <label class="flex items-center gap-2.5 text-xs text-slate-300 cursor-pointer select-none pt-1">
+            <input type="checkbox" id="chkInkBleed" checked onchange="updateRealismSettings()" class="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0" />
+            <span>Enable Micro Ink-Bleed Paper Absorption Filter</span>
+          </label>
+
+          <label class="flex items-center gap-2.5 text-xs text-slate-300 cursor-pointer select-none">
+            <input type="checkbox" id="chkScanShadow" onchange="updateRealismSettings()" class="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0" />
+            <span>Add Overhead Smartphone Camera Scan Lighting Shadow</span>
+          </label>
+
+          <label class="flex items-center gap-2.5 text-xs text-slate-300 cursor-pointer select-none">
+            <input type="checkbox" id="chkShowHolePunches" onchange="updateRealismSettings()" class="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0" />
+            <span>Show Left Binder Punch Holes (Practical File Style)</span>
+          </label>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- RIGHT COLUMN: Live Handwritten Paper Preview (7 cols on large screens) -->
+    <section class="lg:col-span-7 xl:col-span-7 flex flex-col">
+
+      <!-- Preview Top Bar (Zoom, Page Indicator, Status) -->
+      <div class="no-print bg-slate-900/90 border border-slate-800 rounded-t-2xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center gap-3">
+          <span class="flex items-center gap-1.5 text-xs font-medium text-slate-300">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            Live Paper Preview
+          </span>
+          <span id="badgePaperMode" class="text-[11px] px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-300 border border-rose-500/30 font-medium">
+            Ruled Practical Notebook
+          </span>
+        </div>
+
+        <!-- Zoom Controls -->
+        <div class="flex items-center gap-1.5">
+          <button onclick="adjustZoom(-0.1)" title="Zoom Out" class="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center justify-center">
+            <i class="fa-solid fa-minus"></i>
+          </button>
+          <span id="zoomLabel" class="text-xs font-mono text-slate-300 w-12 text-center">100%</span>
+          <button onclick="adjustZoom(0.1)" title="Zoom In" class="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center justify-center">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+          <button onclick="fitPaperToViewport()" title="Fit to Width" class="px-2.5 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center justify-center ml-1">
+            Fit
+          </button>
+        </div>
+      </div>
+
+      <!-- Scrollable Paper Viewport -->
+      <div id="previewViewport" class="flex-1 bg-slate-950/90 border-x border-b border-slate-800 rounded-b-2xl p-4 sm:p-8 overflow-auto flex justify-center items-start min-h-[700px]">
+        
+        <!-- Responsive Scaling Wrapper -->
+        <div id="paperScaleWrapper" class="origin-top transition-transform duration-150">
+
+          <!-- THE HANDWRITTEN PAGE SHEET -->
+          <div id="handwrittenPage" class="paper-sheet paper-texture ink-bleed-active" style="--paper-bg: #fcfbf7; --line-height: 32px; --margin-left: 82px;">
+
+            <!-- Optional Overhead Scan Shadow Overlay -->
+            <div id="scanShadowLayer" class="scan-shadow-overlay hidden"></div>
+
+            <!-- Optional Left Binder Hole Punches -->
+            <div id="binderHolesLayer" class="hidden absolute left-4 top-0 bottom-0 flex flex-col justify-around py-24 pointer-events-none z-20">
+              <div class="w-5 h-5 rounded-full bg-slate-900/85 shadow-inner border border-slate-400/30"></div>
+              <div class="w-5 h-5 rounded-full bg-slate-900/85 shadow-inner border border-slate-400/30"></div>
+              <div class="w-5 h-5 rounded-full bg-slate-900/85 shadow-inner border border-slate-400/30"></div>
+            </div>
+
+            <!-- Double Red Vertical Margin Line (Visible in Ruled Practical Mode) -->
+            <div id="practicalMarginLine" class="practical-margin-lines"></div>
+
+            <!-- PRACTICAL NOTEBOOK TOP HEADER (Visible in Ruled Practical Mode) -->
+            <div id="practicalHeaderBlock" class="practical-top-header flex items-end justify-between px-6 pb-3 pt-4 select-text">
+              <!-- Left Margin Blank Spacer inside Header -->
+              <div style="width: calc(var(--margin-left, 82px) - 24px);" class="shrink-0"></div>
+
+              <!-- Center/Left Experiment No. or Topic Field -->
+              <div class="flex-1 pr-4">
+                <div class="flex items-baseline gap-2">
+                  <span id="pageHeaderExpText" contenteditable="true" spellcheck="false" oninput="syncHeaderInputs('fromPage')" class="ink-text font-bold tracking-wide outline-none focus:bg-amber-200/30 rounded px-1" style="font-family: 'Kalam', cursive; font-size: 22px; color: #16181d;">
+                    Exp. No: 04
+                  </span>
+                </div>
+              </div>
+
+              <!-- Right Classic Date & Page No Box -->
+              <div class="border border-rose-400/70 rounded-md px-3 py-1.5 bg-white/30 backdrop-blur-[1px] min-w-[185px] text-xs space-y-1 shadow-sm">
+                <div class="flex items-baseline justify-between gap-2 border-b border-rose-300/60 pb-0.5">
+                  <span class="font-sans font-semibold text-[10px] uppercase tracking-wider text-rose-700/80">Date :</span>
+                  <span id="pageHeaderDateText" contenteditable="true" spellcheck="false" oninput="syncHeaderInputs('fromPage')" class="ink-text font-medium outline-none focus:bg-amber-200/30 rounded px-1" style="font-family: 'Kalam', cursive; font-size: 16px; color: #16181d;">
+                    14 / 10 / 2026
+                  </span>
+                </div>
+                <div class="flex items-baseline justify-between gap-2 pt-0.5">
+                  <span class="font-sans font-semibold text-[10px] uppercase tracking-wider text-rose-700/80">Page No :</span>
+                  <span id="pageHeaderPageNoText" contenteditable="true" spellcheck="false" oninput="syncHeaderInputs('fromPage')" class="ink-text font-medium outline-none focus:bg-amber-200/30 rounded px-1" style="font-family: 'Kalam', cursive; font-size: 16px; color: #16181d;">
+                    12
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Plain A4 Top Spacer (Visible only in Plain A4 Mode) -->
+            <div id="a4TopSpacer" class="hidden" style="height: 56px;"></div>
+
+            <!-- MAIN RULED / HANDWRITING CONTENT AREA -->
+            <div id="notesBodyArea" class="ruled-lines-area relative min-h-[1027px] pb-16 pr-8 sm:pr-10">
+              <!-- Rendered Handwritten Lines Injected Here via JS -->
+              <div id="handwrittenContentRoot" class="relative z-10"></div>
+            </div>
+
+          </div>
+          <!-- END HANDWRITTEN PAGE SHEET -->
+
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Toast Notification Modal (No alert() used) -->
+  <div id="toastNotification" class="fixed bottom-5 right-5 z-50 transform translate-y-20 opacity-0 pointer-events-none transition-all duration-300 bg-slate-900 border border-slate-700 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3">
+    <i id="toastIcon" class="fa-solid fa-circle-check text-emerald-400 text-lg"></i>
+    <div>
+      <div id="toastTitle" class="text-xs font-semibold">Export Ready</div>
+      <div id="toastMessage" class="text-[11px] text-slate-400">Your handwritten page has been downloaded.</div>
+    </div>
+  </div>
+
+  <!-- Application Logic -->
+  <script>
+    /*************************************************************************
+     * 1. STATE & PRESET TEMPLATES
+     *************************************************************************/
+    const state = {
+      paperType: 'practical', // 'practical' | 'a4'
+      paperBg: '#fcfbf7',
+      fontFamily: 'Kalam',
+      fontSize: 20,
+      lineHeight: 32,
+      baselineOffset: 3,
+      letterSpacing: 0.5,
+      wordSpacing: 3,
+      headingInkColor: '#16181d', // Realistic Black Ink
+      bodyInkColor: '#1a3b8b',    // Realistic Blue Ink
+      marginLeft: 82,
+      wordJitter: 1.2,
+      inkPressure: 12,
+      inkBleed: true,
+      scanShadow: false,
+      holePunches: false,
+      zoom: 1.0,
+      jitterSeed: 42,
+      loadedPdfDoc: null,
+      loadedPdfFileName: ''
+    };
+
+    const SAMPLE_TEMPLATES = {
+      physics: {
+        expTitle: 'Exp. No: 04',
+        date: '14 / 10 / 2026',
+        pageNo: '12',
+        content: `# Determination of Focal Length of Convex Lens
+
+Aim: To determine the focal length of a given converging convex lens by plotting a graph between object distance (u) and image distance (v).
+
+Apparatus Required:
+• An optical bench with three uprights (central upright fixed)
+• A convex lens with lens holder
+• Two optical needles (one thin object needle and one thick image needle)
+• Aknitting needle for index correction and a meter scale
+
+# Theory & Formula:
+When an object is placed beyond the focus of a convex lens, a real and inverted image is formed on the other side of the lens. From the thin lens equation:
+
+1/f = 1/v - 1/u   or   f = (u × v) / (u - v)
+
+Where:
+**u:** Distance of object needle from optical centre of the lens (cm)
+**v:** Distance of image needle from optical centre of the lens (cm)
+**f:** Focal length of the given convex lens (cm)
+
+# Procedure:
+1. | Obtain the rough focal length of the convex lens by focusing a distant object (like a building or tree) on a white wall or screen.
+2. | Mount the convex lens on the central upright of the optical bench and keep it clamped near the 50 cm mark.
+3. | Place the object needle beyond 2F on one side and adjust the image needle on the other side until parallax between the tip of the object needle and its inverted image is completely removed.
+4. | Repeat the observations for at least five different values of object distance (u).
+
+Result:
+The focal length of the given convex lens as determined from the (u - v) graph is found to be **f = +15.2 cm**.
+
+Precautions:
+• Tips of the object needle, image needle, and optical centre of the lens must lie at the same horizontal level.
+• Parallax should be removed tip-to-tip by keeping the eye at least 30 cm away.`
+      },
+
+      cs: {
+        expTitle: 'Unit 3: Trees & Graphs',
+        date: '01 / 11 / 2026',
+        pageNo: '28',
+        content: `# Binary Search Trees (BST) & Traversals
+
+Definition: A Binary Search Tree is a node-based binary tree data structure which has the following properties for every node N:
+• The left subtree of a node contains only nodes with keys lesser than the node's key.
+• The right subtree of a node contains only nodes with keys greater than the node's key.
+• Both the left and right subtrees must also be binary search trees.
+
+# Time Complexity Analysis:
+**Search Operation:** O(h) where h is height of BST (O(log n) average, O(n) worst case)
+**Insertion Operation:** O(log n) in balanced BST, O(n) in skewed tree
+**Deletion Operation:** O(log n) average case
+
+# Tree Traversal Algorithms:
+Q.1 | Explain the three standard depth-first traversals on a binary tree with their visit order.
+
+Ans | The three depth-first traversal techniques visit nodes in the following recursive order:
+1. | **Inorder (Left, Root, Right):** Produces sorted key sequence in ascending order when applied to a Binary Search Tree.
+2. | **Preorder (Root, Left, Right):** Used to create a prefix expression or clone a tree structure efficiently.
+3. | **Postorder (Left, Right, Root):** Used for deleting a tree or evaluating postfix arithmetic expressions.
+
+Key Note:
+To guarantee O(log n) height even in worst-case insertions, self-balancing trees like **AVL Trees** and **Red-Black Trees** perform rotations whenever the balance factor exceeds {-1, 0, +1}.`
+      },
+
+      biology: {
+        expTitle: 'Chapter 8: Cell Cycle',
+        date: '19 / 10 / 2026',
+        pageNo: '07',
+        content: `# Mitosis — Equational Cell Division
+
+Introduction: Mitosis is a process of cell duplication in which one parent cell divides to produce two genetically identical daughter cells with the same chromosome number (2n).
+
+# Phases of Karyokinesis:
+1. | **Prophase:** Chromosomal material condenses to form compact mitotic chromosomes composed of two chromatids attached together at the centromere.
+2. | **Metaphase:** Spindle fibres attach to kinetochores of chromosomes and all chromosomes align along the equatorial metaphase plate.
+3. | **Anaphase:** Centromeres split simultaneously and sister chromatids separate, moving toward opposite poles of the cell.
+4. | **Telophase:** Chromosomes cluster at opposite spindle poles, nuclear envelope reassembles around each cluster, and nucleolus reappears.
+
+# Biological Significance of Mitosis:
+• Maintains constant chromosome number across all somatic cells of an organism.
+• Helps in wound healing, tissue repair, and replacement of worn-out cells (such as blood cells and epidermis).
+• Responsible for multicellular growth from a single diploid zygote.`
+      },
+
+      chemistry: {
+        expTitle: 'Exp. No: 09 (Organic)',
+        date: '25 / 10 / 2026',
+        pageNo: '34',
+        content: `# Identification of Functional Group in Organic Compound
+
+Aim: To identify the functional group present in the given unknown organic compound (Sample C).
+
+Preliminary Tests:
+**Physical State:** Colourless volatile liquid
+**Odour:** Pleasant fruity / nail-polish remover like smell
+**Solubility:** Completely miscible in water and ethanol
+**Litmus Test:** Neutral towards both blue and red litmus paper (Phenols and Carboxylic acids absent)
+
+# Functional Group Confirmatory Tests:
+1. | **2,4-DNP Test:** Shook 0.5 mL of the organic compound with 2 mL of 2,4-dinitrophenylhydrazine reagent.
+Observation: Immediate formation of crystalline yellow-orange precipitate.
+Inference: Carbonyl group (**Aldehyde or Ketone**) is confirmed.
+
+2. | **Tollen's Silver Mirror Test:** Warmed the compound with freshly prepared ammoniacal silver nitrate solution in a water bath.
+Observation: No silver mirror was formed on the inner walls of the test tube.
+Inference: Aldehyde group (-CHO) is absent; **Ketonic group (-CO-)** is present.
+
+3. | **Sodium Nitroprusside Test:** Added 1 mL sodium nitroprusside and 2 drops of NaOH solution to the organic liquid.
+Observation: Wine red coloration appeared immediately.
+
+Result:
+The given unknown organic compound (Sample C) contains a **Ketonic Functional Group (-C=O)**.`
+      }
+    };
+
+    /*************************************************************************
+     * 2. DETERMINISTIC PSEUDO-RANDOM GENERATOR FOR REALISTIC HUMAN JITTER
+     *************************************************************************/
+    function seededRandom(seed) {
+      const x = Math.sin(seed * 9999.91) * 10000;
+      return x - Math.floor(x);
+    }
+
+    function reseedJitter() {
+      state.jitterSeed = Math.floor(Math.random() * 10000);
+      renderHandwrittenNotes();
+      showToast('Handwriting Randomized', 'Subtle human baseline and ink pressure variations updated.');
+    }
+
+    /*************************************************************************
+     * 3. ESCAPE HTML & INLINE FORMATTING PARSER
+     *************************************************************************/
+    function escapeHtml(str) {
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    /**
+     * Renders a single line's words with realistic per-word jitter, ink pressure,
+     * and supports inline **Black Ink** segments as well as automatic "Label:" black ink.
+     */
+    function buildHandwrittenWordsHTML(rawText, isFullLineHeading, lineIndex) {
+      const autoInlineColon = document.getElementById('chkInlineColon').checked;
+      let processedText = rawText;
+
+      // If this is a body line and autoInlineColon is enabled, check if the line starts with a short label before ':'
+      // e.g. "Observation: Immediate formation..." -> "**Observation:** Immediate formation..."
+      if (!isFullLineHeading && autoInlineColon && !processedText.startsWith('**')) {
+        const colonMatch = processedText.match(/^([A-Za-z0-9\s\-()/.,]{2,32}:)(\s+.*)$/);
+        if (colonMatch) {
+          processedText = `**${colonMatch[1]}**${colonMatch[2]}`;
+        }
+      }
+
+      // Split text by **bold/black ink** tokens
+      const segments = processedText.split(/(\*\*.*?\*\*)/g);
+      let wordCounter = 0;
+      let htmlOutput = '';
+
+      segments.forEach((segment) => {
+        if (!segment) return;
+
+        let isBlackSegment = isFullLineHeading;
+        let cleanSegment = segment;
+
+        if (segment.startsWith('**') && segment.endsWith('**') && segment.length > 4) {
+          isBlackSegment = true;
+          cleanSegment = segment.slice(2, -2);
+        }
+
+        const inkColor = isBlackSegment ? state.headingInkColor : state.bodyInkColor;
+        const fontWeight = isBlackSegment ? '700' : '400';
+
+        // Split segment into words and spaces while preserving spaces
+        const tokens = cleanSegment.split(/(\s+)/);
+
+        tokens.forEach((token) => {
+          if (!token) return;
+          if (/^\s+$/.test(token)) {
+            htmlOutput += token;
+            return;
+          }
+
+          wordCounter++;
+          const seedBase = state.jitterSeed + lineIndex * 131 + wordCounter * 17;
+          const r1 = seededRandom(seedBase) - 0.5;       // -0.5 to +0.5
+          const r2 = seededRandom(seedBase + 1) - 0.5;   // -0.5 to +0.5
+          const r3 = seededRandom(seedBase + 2);         // 0.0 to 1.0
+
+          // Vertical baseline jitter (in px) & slight rotation (in deg)
+          const dy = (r1 * state.wordJitter * 2.1).toFixed(2);
+          const rot = (r2 * state.wordJitter * 1.15).toFixed(2);
+
+          // Subtle ink pressure opacity variation (e.g. 0.86 to 1.0)
+          const pressureDrop = (state.inkPressure / 100) * r3;
+          const opacity = Math.max(0.72, (0.98 - pressureDrop)).toFixed(2);
+
+          htmlOutput += `<span class="ink-word inline-block" style="color: ${inkColor}; font-weight: ${fontWeight}; opacity: ${opacity}; transform: translateY(${dy}px) rotate(${rot}deg);">${escapeHtml(token)}</span>`;
+        });
+      });
+
+      return htmlOutput;
+    }
+
+    /**
+     * Generates a realistic hand-drawn SVG underline in Black Ink for Headings
+     */
+    function buildHandDrawnUnderlineSVG(style, lineIndex) {
+      if (style === 'none') return '';
+      const r = seededRandom(state.jitterSeed + lineIndex * 53);
+      const midY = (2.5 + r * 2).toFixed(1);
+      const endY = (1.5 + (1 - r) * 2.2).toFixed(1);
+
+      if (style === 'double') {
+        return `
+          <svg class="w-full h-[8px] overflow-visible block -mt-1 pointer-events-none" viewBox="0 0 200 8" preserveAspectRatio="none">
+            <path d="M 0 2.5 Q 95 ${midY} 200 ${endY}" stroke="${state.headingInkColor}" stroke-width="1.6" fill="none" stroke-linecap="round" opacity="0.88" />
+            <path d="M 2 6.2 Q 105 ${Number(midY) + 3.2} 198 ${Number(endY) + 3.5}" stroke="${state.headingInkColor}" stroke-width="1.3" fill="none" stroke-linecap="round" opacity="0.8" />
+          </svg>
+        `;
+      }
+
+      return `
+        <svg class="w-full h-[6px] overflow-visible block -mt-1 pointer-events-none" viewBox="0 0 200 6" preserveAspectRatio="none">
+          <path d="M 0 3 Q 100 ${midY} 200 ${endY}" stroke="${state.headingInkColor}" stroke-width="1.8" fill="none" stroke-linecap="round" opacity="0.9" />
+        </svg>
+      `;
+    }
+
+    /*************************************************************************
+     * 4. CORE HANDWRITTEN PAGE RENDERER
+     *************************************************************************/
+    function renderHandwrittenNotes() {
+      const rawInput = document.getElementById('noteInput').value;
+      const lines = rawInput.split('\n');
+
+      // Update Editor Word/Line Counter
+      const wordCount = rawInput.trim() ? rawInput.trim().split(/\s+/).length : 0;
+      document.getElementById('editorStats').textContent = `${wordCount} words • ${lines.length} lines`;
+
+      const chkColonHeading = document.getElementById('chkColonHeading').checked;
+      const chkAllCapsHeading = document.getElementById('chkAllCapsHeading').checked;
+      const underlineStyle = document.getElementById('selectHeadingUnderline').value;
+
+      const root = document.getElementById('handwrittenContentRoot');
+      let html = '';
+
+      lines.forEach((rawLine, idx) => {
+        const trimmed = rawLine.trim();
+
+        // Empty line: preserve exact 1-line ruled spacing so vertical rhythm never breaks
+        if (!trimmed) {
+          html += `<div class="w-full" style="height: var(--line-height, 32px);"></div>`;
+          return;
+        }
+
+        // Check for Left Margin syntax: e.g. "Q.1 | Text..." or "1. | Text..."
+        let marginTag = '';
+        let contentLine = rawLine;
+
+        if (rawLine.includes('|')) {
+          const pipeIndex = rawLine.indexOf('|');
+          const leftCandidate = rawLine.slice(0, pipeIndex).trim();
+          if (leftCandidate.length > 0 && leftCandidate.length <= 12) {
+            marginTag = leftCandidate;
+            contentLine = rawLine.slice(pipeIndex + 1).replace(/^\s+/, '');
+          }
+        }
+
+        const trimmedContent = contentLine.trim();
+
+        // Determine if this line is a Full-Line Heading (Black Ink)
+        let isHeading = false;
+        let headingLevel = 1; // 1 = #, 2 = ## or auto
+        let displayLine = contentLine;
+
+        if (/^#{1,3}\s+/.test(trimmedContent)) {
+          isHeading = true;
+          const hashes = trimmedContent.match(/^(#{1,3})\s+/)[1];
+          headingLevel = hashes.length;
+          displayLine = trimmedContent.replace(/^#{1,3}\s+/, '');
+        } else if (chkColonHeading && trimmedContent.endsWith(':') && trimmedContent.length <= 68) {
+          isHeading = true;
+          headingLevel = 2;
+          displayLine = contentLine;
+        } else if (
+          chkAllCapsHeading &&
+          trimmedContent.length >= 3 &&
+          trimmedContent.length <= 55 &&
+          trimmedContent === trimmedContent.toUpperCase() &&
+          /[A-Z]/.test(trimmedContent)
+        ) {
+          isHeading = true;
+          headingLevel = 2;
+          displayLine = contentLine;
+        }
+
+        // Slight per-line horizontal indent jitter for organic human feel
+        const lineSeed = state.jitterSeed + idx * 71;
+        const lineOffsetX = ((seededRandom(lineSeed) - 0.5) * state.wordJitter * 3.5).toFixed(1);
+
+        // Font size scaling for main # headings while strictly keeping line-height locked to ruled lines
+        const fontSizePx = isHeading && headingLevel === 1
+          ? Math.round(state.fontSize * 1.16)
+          : state.fontSize;
+
+        // Build inner words HTML
+        const wordsHTML = buildHandwrittenWordsHTML(displayLine, isHeading, idx);
+        const underlineHTML = isHeading ? buildHandDrawnUnderlineSVG(underlineStyle, idx) : '';
+
+        // Left margin tag HTML (sits to the left of the double red margin line in Black Ink)
+        const marginTagHTML = marginTag
+          ? `<div class="ink-text absolute left-0 top-0 pr-2 text-right font-bold select-text" style="width: var(--margin-left, 82px); color: ${state.headingInkColor}; font-family: '${state.fontFamily}', cursive; font-size: ${state.fontSize}px; line-height: var(--line-height, 32px); transform: translateY(${state.baselineOffset}px);">
+              ${escapeHtml(marginTag)}
+             </div>`
+          : '';
+
+        html += `
+          <div class="relative w-full flex items-baseline" style="min-height: var(--line-height, 32px); padding-left: calc(var(--margin-left, 82px) + 14px);">
+            ${marginTagHTML}
+            <div class="ink-text w-full select-text" style="
+              font-family: '${state.fontFamily}', cursive;
+              font-size: ${fontSizePx}px;
+              line-height: var(--line-height, 32px);
+              letter-spacing: ${state.letterSpacing}px;
+              word-spacing: ${state.wordSpacing}px;
+              transform: translate(${lineOffsetX}px, ${state.baselineOffset}px);
+            ">
+              <span class="inline-block relative">
+                ${wordsHTML}
+                ${underlineHTML}
+              </span>
+            </div>
+          </div>
+        `;
+      });
+
+      root.innerHTML = html;
+
+      // Also sync header font with chosen handwriting font
+      const headerIds = ['pageHeaderExpText', 'pageHeaderDateText', 'pageHeaderPageNoText'];
+      headerIds.forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.style.fontFamily = `'${state.fontFamily}', cursive`;
+          el.style.color = state.headingInkColor;
+        }
+      });
+    }
+
+    /*************************************************************************
+     * 5. CONTROLS, PAPER MODE SWITCHER & TOOLBAR ACTIONS
+     *************************************************************************/
+    function setPaperType(mode) {
+      state.paperType = mode;
+      const btnPractical = document.getElementById('btnModePractical');
+      const btnA4 = document.getElementById('btnModeA4');
+      const marginLine = document.getElementById('practicalMarginLine');
+      const headerBlock = document.getElementById('practicalHeaderBlock');
+      const a4TopSpacer = document.getElementById('a4TopSpacer');
+      const bodyArea = document.getElementById('notesBodyArea');
+      const headerFieldsCard = document.getElementById('practicalHeaderFieldsCard');
+      const badge = document.getElementById('badgePaperMode');
+
+      if (mode === 'practical') {
+        btnPractical.className = 'flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all bg-blue-600 text-white shadow';
+        btnA4.className = 'flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all text-slate-400 hover:text-white';
+
+        marginLine.classList.remove('hidden');
+        headerBlock.classList.remove('hidden');
+        a4TopSpacer.classList.add('hidden');
+        bodyArea.classList.add('ruled-lines-area');
+        headerFieldsCard.classList.remove('hidden');
+
+        badge.textContent = 'Ruled Practical Notebook';
+        badge.className = 'text-[11px] px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-300 border border-rose-500/30 font-medium';
+      } else {
+        btnA4.className = 'flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all bg-blue-600 text-white shadow';
+        btnPractical.className = 'flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all text-slate-400 hover:text-white';
+
+        marginLine.classList.add('hidden');
+        headerBlock.classList.add('hidden');
+        a4TopSpacer.classList.remove('hidden');
+        bodyArea.classList.remove('ruled-lines-area');
+        headerFieldsCard.classList.add('hidden');
+
+        badge.textContent = 'Plain A4 Sheet';
+        badge.className = 'text-[11px] px-2 py-0.5 rounded-md bg-blue-500/15 text-blue-300 border border-blue-500/30 font-medium';
+      }
+
+      renderHandwrittenNotes();
+    }
+
+    function switchControlTab(tabName) {
+      ['editor', 'style', 'paper'].forEach((t) => {
+        const panel = document.getElementById(`tabPanel-${t}`);
+        const btn = document.getElementById(`tabBtn-${t}`);
+        if (t === tabName) {
+          panel.classList.remove('hidden');
+          btn.className = 'flex-1 py-2 px-3 rounded-xl text-xs sm:text-sm font-medium transition flex items-center justify-center gap-2 bg-slate-800 text-white shadow';
+        } else {
+          panel.classList.add('hidden');
+          btn.className = 'flex-1 py-2 px-3 rounded-xl text-xs sm:text-sm font-medium transition flex items-center justify-center gap-2 text-slate-400 hover:text-white';
+        }
+      });
+    }
+
+    function selectHandwritingFont(fontName, recommendedSize, recommendedBaseline) {
+      state.fontFamily = fontName;
+      state.fontSize = recommendedSize;
+      state.baselineOffset = recommendedBaseline;
+
+      document.getElementById('sliderFontSize').value = recommendedSize;
+      document.getElementById('valFontSize').textContent = `${recommendedSize}px`;
+      document.getElementById('sliderBaselineOffset').value = recommendedBaseline;
+      document.getElementById('valBaselineOffset').textContent = `${recommendedBaseline >= 0 ? '+' : ''}${recommendedBaseline}px`;
+
+      // Highlight active font button
+      document.querySelectorAll('.font-card').forEach((card) => {
+        if (card.dataset.font === fontName) {
+          card.className = 'font-card p-2.5 rounded-xl border border-blue-500 bg-blue-500/10 text-left transition cursor-pointer';
+        } else {
+          card.className = 'font-card p-2.5 rounded-xl border border-slate-800 bg-slate-950 hover:border-slate-700 text-left transition cursor-pointer';
+        }
+      });
+
+      renderHandwrittenNotes();
+    }
+
+    function setHeadingInkColor(hex) {
+      state.headingInkColor = hex;
+      document.getElementById('customBlackPicker').value = hex;
+      renderHandwrittenNotes();
+    }
+
+    function setBodyInkColor(hex) {
+      state.bodyInkColor = hex;
+      document.getElementById('customBluePicker').value = hex;
+      renderHandwrittenNotes();
+    }
+
+    function setPaperTint(hex) {
+      state.paperBg = hex;
+      document.getElementById('handwrittenPage').style.setProperty('--paper-bg', hex);
+    }
+
+    function updateTypographySettings() {
+      state.fontSize = Number(document.getElementById('sliderFontSize').value);
+      state.lineHeight = Number(document.getElementById('sliderLineHeight').value);
+      state.baselineOffset = Number(document.getElementById('sliderBaselineOffset').value);
+      state.letterSpacing = Number(document.getElementById('sliderLetterSpacing').value);
+      state.wordSpacing = Number(document.getElementById('sliderWordSpacing').value);
+
+      document.getElementById('valFontSize').textContent = `${state.fontSize}px`;
+      document.getElementById('valLineHeight').textContent = `${state.lineHeight}px`;
+      document.getElementById('valBaselineOffset').textContent = `${state.baselineOffset >= 0 ? '+' : ''}${state.baselineOffset}px`;
+      document.getElementById('valLetterSpacing').textContent = `${state.letterSpacing}px`;
+      document.getElementById('valWordSpacing').textContent = `${state.wordSpacing}px`;
+
+      const page = document.getElementById('handwrittenPage');
+      page.style.setProperty('--line-height', `${state.lineHeight}px`);
+
+      renderHandwrittenNotes();
+    }
+
+    function updateMarginSettings() {
+      state.marginLeft = Number(document.getElementById('sliderMarginLeft').value);
+      document.getElementById('valMarginLeft').textContent = `${state.marginLeft}px`;
+      document.getElementById('handwrittenPage').style.setProperty('--margin-left', `${state.marginLeft}px`);
+      renderHandwrittenNotes();
+    }
+
+    function updateRealismSettings() {
+      state.wordJitter = Number(document.getElementById('sliderWordJitter').value);
+      state.inkPressure = Number(document.getElementById('sliderInkPressure').value);
+      state.inkBleed = document.getElementById('chkInkBleed').checked;
+      state.scanShadow = document.getElementById('chkScanShadow').checked;
+      state.holePunches = document.getElementById('chkShowHolePunches').checked;
+
+      const jitterLabel = state.wordJitter === 0 ? 'None (0px)' : state.wordJitter < 1.5 ? `Natural (${state.wordJitter}px)` : `Messy (${state.wordJitter}px)`;
+      document.getElementById('valWordJitter').textContent = jitterLabel;
+      document.getElementById('valInkPressure').textContent = `${state.inkPressure}%`;
+
+      const page = document.getElementById('handwrittenPage');
+      page.classList.toggle('ink-bleed-active', state.inkBleed);
+
+      document.getElementById('scanShadowLayer').classList.toggle('hidden', !state.scanShadow);
+      document.getElementById('binderHolesLayer').classList.toggle('hidden', !state.holePunches);
+
+      renderHandwrittenNotes();
+    }
+
+    function syncHeaderInputs(source) {
+      const inputExp = document.getElementById('inputExpTitle');
+      const inputDate = document.getElementById('inputDocDate');
+      const inputPage = document.getElementById('inputPageNo');
+
+      const pageExp = document.getElementById('pageHeaderExpText');
+      const pageDate = document.getElementById('pageHeaderDateText');
+      const pageNo = document.getElementById('pageHeaderPageNoText');
+
+      if (source === 'fromSidebar') {
+        pageExp.textContent = inputExp.value;
+        pageDate.textContent = inputDate.value;
+        pageNo.textContent = inputPage.value;
+      } else {
+        inputExp.value = pageExp.textContent.trim();
+        inputDate.value = pageDate.textContent.trim();
+        inputPage.value = pageNo.textContent.trim();
+      }
+    }
+
+    /*************************************************************************
+     * 6. QUICK EDITOR FORMATTING HELPERS
+     *************************************************************************/
+    function formatSelection(action) {
+      const textarea = document.getElementById('noteInput');
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const text = textarea.value;
+
+      // Find start and end of current line(s)
+      const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+      let lineEnd = text.indexOf('\n', end);
+      if (lineEnd === -1) lineEnd = text.length;
+
+      const selectedLinesBlock = text.slice(lineStart, lineEnd);
+
+      if (action === 'inlineHeading') {
+        const selectedText = text.slice(start, end) || 'Important Heading:';
+        const replacement = `**${selectedText.replace(/^\*\*|\*\*$/g, '')}**`;
+        textarea.value = text.slice(0, start) + replacement + text.slice(end);
+        textarea.focus();
+        renderHandwrittenNotes();
+        return;
+      }
+
+      const transformedLines = selectedLinesBlock.split('\n').map((line) => {
+        const cleanLine = line.replace(/^(#{1,3}\s+|•\s+|Q\.\d+\s*\|\s*)/, '');
+        if (action === 'heading') {
+          return `# ${cleanLine || 'New Heading'}`;
+        }
+        if (action === 'bullet') {
+          return `• ${cleanLine || 'Note item'}`;
+        }
+        if (action === 'marginTag') {
+          return `Q.1 | ${cleanLine || 'Write your point here'}`;
+        }
+        if (action === 'body') {
+          return cleanLine.replace(/:\s*$/, '');
+        }
+        return line;
+      }).join('\n');
+
+      textarea.value = text.slice(0, lineStart) + transformedLines + text.slice(lineEnd);
+      textarea.focus();
+      renderHandwrittenNotes();
+    }
+
+    function clearEditorText() {
+      const textarea = document.getElementById('noteInput');
+      textarea.value = '# Heading in Black Ink\n\nWrite your body notes here in realistic blue ink...';
+      renderHandwrittenNotes();
+      textarea.focus();
+    }
+
+    function loadSampleTemplate(templateKey) {
+      const tpl = SAMPLE_TEMPLATES[templateKey];
+      if (!tpl) return;
+
+      document.getElementById('noteInput').value = tpl.content;
+      document.getElementById('inputExpTitle').value = tpl.expTitle;
+      document.getElementById('inputDocDate').value = tpl.date;
+      document.getElementById('inputPageNo').value = tpl.pageNo;
+
+      syncHeaderInputs('fromSidebar');
+      renderHandwrittenNotes();
+      showToast('Sample Loaded', `Loaded "${tpl.expTitle}" notes template.`);
+    }
+
+    /*************************************************************************
+     * 6B. PDF UPLOAD & SMART PDF-TO-HANDWRITING CONVERTER ENGINE
+     *************************************************************************/
+    function handlePdfDragOver(event) {
+      event.preventDefault();
+      event.stopPropagation();
+      const zone = document.getElementById('pdfDropZone');
+      zone.classList.add('border-amber-400', 'bg-slate-900/90');
+    }
+
+    function handlePdfDragLeave(event) {
+      event.preventDefault();
+      event.stopPropagation();
+      const zone = document.getElementById('pdfDropZone');
+      zone.classList.remove('border-amber-400', 'bg-slate-900/90');
+    }
+
+    function handlePdfDrop(event) {
+      event.preventDefault();
+      event.stopPropagation();
+      const zone = document.getElementById('pdfDropZone');
+      zone.classList.remove('border-amber-400', 'bg-slate-900/90');
+
+      const files = event.dataTransfer?.files;
+      if (files && files.length > 0) {
+        processUploadedDocument(files[0]);
+      }
+    }
+
+    function handleFileUpload(event) {
+      const file = event.target.files?.[0];
+      if (file) {
+        processUploadedDocument(file);
+      }
+      // Reset value so re-uploading the same file triggers onchange
+      event.target.value = '';
+    }
+
+    async function processUploadedDocument(file) {
+      // Switch to Editor tab so user sees progress and extracted text
+      switchControlTab('editor');
+
+      const fileName = file.name || 'Uploaded Document';
+      const lowerName = fileName.toLowerCase();
+
+      // Handle plain text or markdown files directly
+      if (lowerName.endsWith('.txt') || lowerName.endsWith('.md') || file.type === 'text/plain') {
+        try {
+          const textContent = await file.text();
+          document.getElementById('noteInput').value = formatRawTextIntoSmartNotes(textContent);
+          updateHeaderFromFilename(fileName);
+          renderHandwrittenNotes();
+          showToast('Text File Imported', `Converted "${fileName}" into handwritten notes.`);
+        } catch (err) {
+          console.error('Text import error:', err);
+          showToast('Import Error', 'Could not read the text file.');
+        }
+        return;
+      }
+
+      // Handle PDF file via Mozilla pdf.js
+      if (lowerName.endsWith('.pdf') || file.type === 'application/pdf') {
+        if (!window['pdfjsLib']) {
+          showToast('PDF Engine Loading', 'PDF.js library is not available. Check your internet connection.');
+          return;
+        }
+
+        const progressContainer = document.getElementById('pdfProgressContainer');
+        const progressBar = document.getElementById('pdfProgressBar');
+        const progressStatus = document.getElementById('pdfProgressStatus');
+        const progressPercent = document.getElementById('pdfProgressPercent');
+
+        progressContainer.classList.remove('hidden');
+        progressBar.style.width = '8%';
+        progressPercent.textContent = '8%';
+        progressStatus.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1.5"></i>Loading PDF "${escapeHtml(fileName)}"...`;
+
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const loadingTask = window['pdfjsLib'].getDocument({ data: arrayBuffer });
+          const pdfDoc = await loadingTask.promise;
+
+          state.loadedPdfDoc = pdfDoc;
+          state.loadedPdfFileName = fileName;
+
+          const totalPages = pdfDoc.numPages;
+
+          // Populate PDF Controls Card
+          document.getElementById('pdfControlsPanel').classList.remove('hidden');
+          document.getElementById('loadedPdfName').textContent = fileName;
+          document.getElementById('loadedPdfPagesBadge').textContent = `${totalPages} ${totalPages === 1 ? 'Page' : 'Pages'}`;
+
+          const pageFromInput = document.getElementById('pdfPageFrom');
+          const pageToInput = document.getElementById('pdfPageTo');
+          pageFromInput.max = totalPages;
+          pageToInput.max = totalPages;
+          pageFromInput.value = 1;
+          // Default to extracting up to first 10 pages initially for fast responsiveness (user can click "All" anytime)
+          pageToInput.value = Math.min(totalPages, 10);
+
+          updateHeaderFromFilename(fileName);
+
+          await extractPdfPagesToNotes(pdfDoc, 1, Number(pageToInput.value), 'replace');
+        } catch (err) {
+          console.error('PDF parsing error:', err);
+          progressContainer.classList.add('hidden');
+          showToast('PDF Read Error', 'Could not extract text from this PDF. Ensure it is not password-protected.');
+        }
+        return;
+      }
+
+      showToast('Unsupported File', 'Please upload a .pdf, .txt, or .md document.');
+    }
+
+    function updateHeaderFromFilename(fileName) {
+      const cleanTitle = fileName.replace(/\.(pdf|txt|md)$/i, '').replace(/[_-]+/g, ' ').trim();
+      if (cleanTitle) {
+        const shortTitle = cleanTitle.length > 26 ? cleanTitle.slice(0, 26).trim() : cleanTitle;
+        document.getElementById('inputExpTitle').value = shortTitle;
+        syncHeaderInputs('fromSidebar');
+      }
+    }
+
+    function selectAllPdfPages() {
+      if (!state.loadedPdfDoc) return;
+      document.getElementById('pdfPageFrom').value = 1;
+      document.getElementById('pdfPageTo').value = state.loadedPdfDoc.numPages;
+      reExtractLoadedPdf('replace');
+    }
+
+    async function reExtractLoadedPdf(mode = 'replace') {
+      if (!state.loadedPdfDoc) {
+        document.getElementById('pdfFileInput').click();
+        return;
+      }
+      const total = state.loadedPdfDoc.numPages;
+      let startPage = parseInt(document.getElementById('pdfPageFrom').value, 10) || 1;
+      let endPage = parseInt(document.getElementById('pdfPageTo').value, 10) || total;
+
+      startPage = Math.max(1, Math.min(total, startPage));
+      endPage = Math.max(startPage, Math.min(total, endPage));
+
+      document.getElementById('pdfPageFrom').value = startPage;
+      document.getElementById('pdfPageTo').value = endPage;
+
+      await extractPdfPagesToNotes(state.loadedPdfDoc, startPage, endPage, mode);
+    }
+
+    /**
+     * Extracts text items from PDF pages, reconstructs visual lines & paragraphs,
+     * and uses font height + font style heuristics to mark Headings (# in Black Ink)
+     * and inline labels (**Label:** in Black Ink) while body text renders in Blue Ink.
+     */
+    async function extractPdfPagesToNotes(pdfDoc, startPage, endPage, mode = 'replace') {
+      const progressContainer = document.getElementById('pdfProgressContainer');
+      const progressBar = document.getElementById('pdfProgressBar');
+      const progressStatus = document.getElementById('pdfProgressStatus');
+      const progressPercent = document.getElementById('pdfProgressPercent');
+      const detectByFontSize = document.getElementById('chkPdfFontSizeHeadings').checked;
+
+      progressContainer.classList.remove('hidden');
+
+      const allRawLines = [];
+      const allFontSizes = [];
+      const totalToProcess = endPage - startPage + 1;
+
+      for (let pageNum = startPage; pageNum <= endPage; pageNum++) {
+        const doneCount = pageNum - startPage + 1;
+        const pct = Math.round((doneCount / totalToProcess) * 90) + 5;
+        progressBar.style.width = `${pct}%`;
+        progressPercent.textContent = `${pct}%`;
+        progressStatus.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1.5"></i>Reading PDF page ${pageNum} of ${endPage}...`;
+
+        const page = await pdfDoc.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        const items = textContent.items || [];
+
+        // Filter non-empty text items and extract coordinates + font size
+        const pageTokens = [];
+        items.forEach((item) => {
+          if (!item.str || !item.str.trim()) return;
+          const tx = item.transform || [12, 0, 0, 12, 0, 0];
+          const fontHeight = Math.round((Math.hypot(tx[0], tx[1]) || Math.abs(tx[3]) || 12) * 10) / 10;
+          const x = tx[4];
+          const y = tx[5];
+          const fontName = (item.fontName || '').toLowerCase();
+          const styleObj = textContent.styles?.[item.fontName] || {};
+          const fontFamilyMeta = (styleObj.fontFamily || '').toLowerCase();
+          const isBoldFont = /bold|black|heavy|demi|semibold/i.test(fontName + ' ' + fontFamilyMeta);
+
+          pageTokens.push({
+            text: item.str,
+            x,
+            y,
+            width: item.width || 0,
+            fontHeight,
+            isBoldFont
+          });
+
+          if (item.str.trim().length >= 3) {
+            allFontSizes.push(fontHeight);
+          }
+        });
+
+        // Sort tokens top-to-bottom (descending Y in PDF coordinates), then left-to-right (ascending X)
+        pageTokens.sort((a, b) => {
+          if (Math.abs(b.y - a.y) > 3.5) {
+            return b.y - a.y;
+          }
+          return a.x - b.x;
+        });
+
+        // Group tokens into horizontal visual lines based on Y proximity
+        const pageLines = [];
+        pageTokens.forEach((tok) => {
+          const lastLine = pageLines[pageLines.length - 1];
+          const yTolerance = Math.max(3.5, tok.fontHeight * 0.42);
+          if (lastLine && Math.abs(lastLine.y - tok.y) <= yTolerance) {
+            lastLine.tokens.push(tok);
+            // Update weighted average Y
+            lastLine.y = (lastLine.y + tok.y) / 2;
+          } else {
+            pageLines.push({
+              pageNum,
+              y: tok.y,
+              tokens: [tok]
+            });
+          }
+        });
+
+        // Sort tokens inside each line strictly left-to-right and join cleanly
+        pageLines.forEach((lineObj) => {
+          lineObj.tokens.sort((a, b) => a.x - b.x);
+          let lineText = '';
+          let maxFontHeight = 0;
+          let boldCharCount = 0;
+          let totalCharCount = 0;
+          let prevEndX = null;
+
+          lineObj.tokens.forEach((t) => {
+            if (prevEndX !== null) {
+              const gap = t.x - prevEndX;
+              if (gap > t.fontHeight * 0.18 && !lineText.endsWith(' ') && !t.text.startsWith(' ')) {
+                lineText += ' ';
+              }
+            }
+            lineText += t.text;
+            prevEndX = t.x + (t.width || t.text.length * t.fontHeight * 0.5);
+            if (t.fontHeight > maxFontHeight) maxFontHeight = t.fontHeight;
+            const len = t.text.trim().length;
+            totalCharCount += len;
+            if (t.isBoldFont) boldCharCount += len;
+          });
+
+          const cleanText = lineText.replace(/\s+/g, ' ').trim();
+          if (cleanText) {
+            allRawLines.push({
+              pageNum,
+              y: lineObj.y,
+              text: cleanText,
+              fontHeight: maxFontHeight,
+              isMostlyBold: totalCharCount > 0 && (boldCharCount / totalCharCount) >= 0.65
+            });
+          }
+        });
+
+        if (endPage > startPage && pageNum < endPage) {
+          allRawLines.push({ pageBreak: true, pageNum });
+        }
+      }
+
+      // Compute median body font height across the PDF
+      let medianFont = 12;
+      if (allFontSizes.length > 0) {
+        const sortedSizes = [...allFontSizes].sort((a, b) => a - b);
+        medianFont = sortedSizes[Math.floor(sortedSizes.length * 0.5)];
+      }
+
+      // Convert reconstructed PDF lines into Smart Handwritten Notes syntax
+      const formattedLines = [];
+      let prevLine = null;
+
+      for (let i = 0; i < allRawLines.length; i++) {
+        const item = allRawLines[i];
+        if (item.pageBreak) {
+          if (formattedLines.length > 0 && formattedLines[formattedLines.length - 1] !== '') {
+            formattedLines.push('');
+          }
+          prevLine = null;
+          continue;
+        }
+
+        let text = item.text;
+
+        // Skip standalone page numbers (e.g. "Page 1 of 5" or isolated digits at very top/bottom)
+        if (/^(page\s*\d+(\s*of\s*\d+)?|\d{1,3})$/i.test(text) && text.length < 12) {
+          continue;
+        }
+
+        // Insert blank line on larger vertical paragraph gaps
+        if (prevLine && prevLine.pageNum === item.pageNum) {
+          const deltaY = Math.abs(prevLine.y - item.y);
+          if (deltaY > item.fontHeight * 1.65 && formattedLines[formattedLines.length - 1] !== '') {
+            formattedLines.push('');
+          }
+        }
+
+        // Determine if PDF line is a Heading (Black Ink) based on font size or bold standalone line
+        const isLargerFontHeading =
+          detectByFontSize &&
+          item.fontHeight >= medianFont * 1.13 &&
+          text.length <= 95;
+
+        const isBoldStandaloneHeading =
+          detectByFontSize &&
+          item.isMostlyBold &&
+          text.length <= 75 &&
+          !/[.;,]$/.test(text);
+
+        const isStructuralHeading =
+          /^(chapter|unit|experiment|exp\.?\s*no|section|module|topic|part|aim|objective|theory|apparatus|materials?\s+required|procedure|observations?|calculations?|result|conclusion|precautions?|viva\s*voce|references?)\b/i.test(text) &&
+          text.length <= 70;
+
+        // Normalize bullet symbols
+        if (/^[\u2022\u2023\u25E6\u2043\u2219\-\*]\s+/.test(text)) {
+          text = '• ' + text.replace(/^[\u2022\u2023\u25E6\u2043\u2219\-\*]\s+/, '');
+        }
+
+        // Convert numbered questions or steps at line start (e.g. "Q1." or "Q.1" or "1.") into Left Margin Tags
+        const qMatch = text.match(/^(Q\.?\s*\d+|Ans\.?|Step\s*\d+|\d{1,2}\.)\s+(.+)$/i);
+
+        if (isLargerFontHeading || isBoldStandaloneHeading || (isStructuralHeading && !text.includes(':'))) {
+          const cleanHeading = text.replace(/^#{1,3}\s+/, '');
+          if (formattedLines.length > 0 && formattedLines[formattedLines.length - 1] !== '') {
+            formattedLines.push('');
+          }
+          formattedLines.push(`# ${cleanHeading}`);
+        } else if (qMatch && !text.startsWith('#')) {
+          const tag = qMatch[1].replace(/\s+/g, '');
+          const rest = qMatch[2];
+          formattedLines.push(`${tag} | ${rest}`);
+        } else {
+          formattedLines.push(text);
+        }
+
+        prevLine = item;
+      }
+
+      const finalExtractedText = formattedLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+
+      progressBar.style.width = '100%';
+      progressPercent.textContent = '100%';
+      progressStatus.innerHTML = `<i class="fa-solid fa-check text-emerald-400 mr-1.5"></i>Extracted ${totalToProcess} page(s) into handwriting!`;
+
+      setTimeout(() => {
+        progressContainer.classList.add('hidden');
+      }, 1400);
+
+      if (!finalExtractedText) {
+        showToast('Scanned PDF Detected', 'No selectable text found in this PDF (it may be a scanned image PDF).');
+        return;
+      }
+
+      const noteInput = document.getElementById('noteInput');
+      if (mode === 'append' && noteInput.value.trim()) {
+        noteInput.value = noteInput.value.trim() + '\n\n' + finalExtractedText;
+      } else {
+        noteInput.value = finalExtractedText;
+      }
+
+      renderHandwrittenNotes();
+      showToast(
+        'PDF Converted to Handwriting!',
+        `Pages ${startPage}–${endPage} extracted: Headings in Black Ink, Body in Blue Ink.`
+      );
+    }
+
+    /**
+     * Helper to clean up raw pasted/imported plain text files
+     */
+    function formatRawTextIntoSmartNotes(rawText) {
+      return rawText
+        .replace(/\r\n/g, '\n')
+        .split('\n')
+        .map((line) => {
+          const t = line.trim();
+          if (!t) return '';
+          if (/^[\-\*]\s+/.test(t)) return '• ' + t.replace(/^[\-\*]\s+/, '');
+          return line;
+        })
+        .join('\n');
+    }
+
+    /**
+     * Allows user to upload their own .ttf / .otf / .woff handwriting font file
+     */
+    async function handleCustomFontUpload(event) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      try {
+        const buffer = await file.arrayBuffer();
+        const customFontName = 'UserCustomHandwriting';
+        const fontFace = new FontFace(customFontName, buffer);
+        await fontFace.load();
+        document.fonts.add(fontFace);
+
+        state.fontFamily = customFontName;
+        renderHandwrittenNotes();
+        showToast('Custom Font Loaded', `Applied "${file.name}" to your handwritten notes.`);
+      } catch (err) {
+        console.error('Custom font load error:', err);
+        showToast('Font Error', 'Could not load that font file. Please use a valid .ttf, .otf, or .woff file.');
+      }
+      event.target.value = '';
+    }
+
+    /*************************************************************************
+     * 7. VIEWPORT ZOOM & RESPONSIVE SCALING
+     *************************************************************************/
+    function applyZoom(zoomValue) {
+      state.zoom = Math.min(1.4, Math.max(0.4, Number(zoomValue.toFixed(2))));
+      document.getElementById('zoomLabel').textContent = `${Math.round(state.zoom * 100)}%`;
+      const wrapper = document.getElementById('paperScaleWrapper');
+      wrapper.style.transform = `scale(${state.zoom})`;
+    }
+
+    function adjustZoom(delta) {
+      applyZoom(state.zoom + delta);
+    }
+
+    function fitPaperToViewport() {
+      const viewport = document.getElementById('previewViewport');
+      const availableWidth = viewport.clientWidth - 40;
+      const pageNativeWidth = 794;
+      const optimalZoom = Math.min(1.0, Math.max(0.42, availableWidth / pageNativeWidth));
+      applyZoom(optimalZoom);
+    }
+
+    /*************************************************************************
+     * 8. EXPORT AS HIGH-RES PNG & PDF
+     *************************************************************************/
+    function showToast(title, message) {
+      const toast = document.getElementById('toastNotification');
+      document.getElementById('toastTitle').textContent = title;
+      document.getElementById('toastMessage').textContent = message;
+      toast.classList.remove('translate-y-20', 'opacity-0');
+      clearTimeout(window._toastTimer);
+      window._toastTimer = setTimeout(() => {
+        toast.classList.add('translate-y-20', 'opacity-0');
+      }, 3600);
+    }
+
+    async function capturePageCanvas() {
+      const pageElement = document.getElementById('handwrittenPage');
+      const wrapper = document.getElementById('paperScaleWrapper');
+      const previousTransform = wrapper.style.transform;
+
+      // Temporarily reset scale transform for crisp 2x resolution capture
+      wrapper.style.transform = 'scale(1)';
+
+      try {
+        const canvas = await html2canvas(pageElement, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: state.paperBg,
+          logging: false
+        });
+        wrapper.style.transform = previousTransform;
+        return canvas;
+      } catch (err) {
+        wrapper.style.transform = previousTransform;
+        throw err;
+      }
+    }
+
+    async function exportAsPNG() {
+      const btn = document.getElementById('btnExportPNG');
+      const originalHTML = btn.innerHTML;
+      btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Rendering...</span>`;
+      btn.disabled = true;
+
+      try {
+        const canvas = await capturePageCanvas();
+        const dataUrl = canvas.toDataURL('image/png');
+        const link = document.createElement('a');
+        const fileSuffix = state.paperType === 'practical' ? 'practical-page' : 'a4-notes';
+        link.download = `handwritten-${fileSuffix}-${Date.now()}.png`;
+        link.href = dataUrl;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        showToast('PNG Downloaded', 'High-resolution handwritten page saved as PNG.');
+      } catch (error) {
+        console.error('PNG Export Error:', error);
+        showToast('Export Notice', 'Could not generate PNG image. Try using Print/PDF.');
+      } finally {
+        btn.innerHTML = originalHTML;
+        btn.disabled = false;
+      }
+    }
+
+    async function exportAsPDF() {
+      const btn = document.getElementById('btnExportPDF');
+      const originalHTML = btn.innerHTML;
+      btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Saving...</span>`;
+      btn.disabled = true;
+
+      try {
+        const canvas = await capturePageCanvas();
+        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+        const { jsPDF } = window.jspdf;
+
+        // Calculate dimensions in mm (A4 width = 210mm)
+        const pdfWidth = 210;
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+        const pdf = new jsPDF({
+          orientation: 'portrait',
+          unit: 'mm',
+          format: [pdfWidth, Math.max(297, pdfHeight)]
+        });
+
+        pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+        const fileSuffix = state.paperType === 'practical' ? 'practical-copy' : 'a4-notes';
+        pdf.save(`handwritten-${fileSuffix}-${Date.now()}.pdf`);
+        showToast('PDF Saved', 'Your handwritten notes PDF has been downloaded.');
+      } catch (error) {
+        console.error('PDF Export Error:', error);
+        window.print();
+      } finally {
+        btn.innerHTML = originalHTML;
+        btn.disabled = false;
+      }
+    }
+
+    /*************************************************************************
+     * 9. INITIALIZATION ON LOAD
+     *************************************************************************/
+    window.addEventListener('DOMContentLoaded', () => {
+      loadSampleTemplate('physics');
+      fitPaperToViewport();
+    });
+
+    window.addEventListener('resize', () => {
+      if (window.innerWidth < 1024) {
+        fitPaperToViewport();
+      }
+    });
+  </script>
+</body>
+</html>
